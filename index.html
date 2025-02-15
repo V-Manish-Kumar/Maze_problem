@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maze Generator & Solver</title>
+    <style>
+        body { text-align: center; font-family: Arial, sans-serif; margin: 20px; }
+        canvas { background-color: white; border: 2px solid black; }
+        #timer { font-size: 20px; margin: 10px 0; }
+        button { 
+            padding: 10px 20px; 
+            margin: 5px; 
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Maze Generator & Solver</h1>
+    <canvas id="mazeCanvas"></canvas>
+    <div id="timer">Time: 0s</div>
+    <div>
+        <button onclick="generateMaze()">Generate Maze</button>
+        <button onclick="solveMaze()">Solve Maze</button>
+    </div>
+    
+    <script>
+        const canvas = document.getElementById("mazeCanvas");
+        const ctx = canvas.getContext("2d");
+        const size = 21;
+        const cellSize = 20;
+        canvas.width = size * cellSize;
+        canvas.height = size * cellSize;
+        let maze = [];
+        let start = { x: 1, y: 0 };
+        let end = { x: size - 2, y: size - 1 };
+        let timerInterval, timeElapsed = 0;
+        let solving = false;
+        
+        function initializeMaze() {
+            maze = Array(size).fill().map(() => Array(size).fill(1));
+        }
+        
+        function carveMaze(x, y) {
+            maze[y][x] = 0;
+            let directions = [[0, -2], [0, 2], [-2, 0], [2, 0]];
+            // Shuffle directions
+            directions.sort(() => Math.random() - 0.5);
+            
+            for (let i = 0; i < directions.length; i++) {
+                let [dx, dy] = directions[i];
+                let nx = x + dx, ny = y + dy;
+                if (nx > 0 && ny > 0 && nx < size - 1 && ny < size - 1 && maze[ny][nx] === 1) {
+                    maze[y + dy/2][x + dx/2] = 0; // Carve path
+                    carveMaze(nx, ny); // Recursive call
+                }
+            }
+        }
+        
+        function generateMaze() {
+            initializeMaze();
+            carveMaze(1, 1);
+            maze[0][1] = 0; // Start
+            maze[size - 1][size - 2] = 0; // End
+            
+            // Reset solving state
+            solving = false;
+            clearInterval(timerInterval);
+            timeElapsed = 0;
+            document.getElementById("timer").innerText = `Time: 0s`;
+            
+            drawMaze();
+        }
+        
+        function drawMaze() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw the maze
+            for (let y = 0; y < size; y++) {
+                for (let x = 0; x < size; x++) {
+                    ctx.fillStyle = maze[y][x] ? "black" : "white";
+                    ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
+                }
+            }
+            
+            // Draw the start and end positions
+            ctx.fillStyle = "green";
+            ctx.fillRect(start.x * cellSize, start.y * cellSize, cellSize, cellSize);
+            ctx.fillStyle = "red";
+            ctx.fillRect(end.x * cellSize, end.y * cellSize, cellSize, cellSize);
+        }
+        
+        function heuristic(a, b) {
+            return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+        }
+        
+        function solveMaze() {
+            if (solving) return;
+            solving = true;
+            
+            // Reset the maze drawing (except for path)
+            drawMaze();
+            
+            let openSet = [{ 
+                x: start.x, 
+                y: start.y, 
+                cost: 0, 
+                priority: heuristic(start, end), 
+                path: [{ x: start.x, y: start.y }] 
+            }];
+            
+            let visited = new Set([`${start.x},${start.y}`]);
+            
+            // Start timer
+            clearInterval(timerInterval);
+            timeElapsed = 0;
+            timerInterval = setInterval(() => {
+                timeElapsed++;
+                document.getElementById("timer").innerText = `Time: ${timeElapsed}s`;
+            }, 1000);
+            
+            // Function to animate the path
+            function animatePath(path, index) {
+                if (index >= path.length) {
+                    clearInterval(timerInterval);
+                    solving = false;
+                    return;
+                }
+                
+                let { x, y } = path[index];
+                
+                // Clear previous position if not start or end
+                if (index > 0) {
+                    let prev = path[index - 1];
+                    if (!(prev.x === start.x && prev.y === start.y) && 
+                        !(prev.x === end.x && prev.y === end.y)) {
+                        ctx.fillStyle = "pink"; // Visited path
+                        ctx.fillRect(prev.x * cellSize, prev.y * cellSize, cellSize, cellSize);
+                    }
+                }
+                
+                // Draw current position (rat)
+                if (!(x === end.x && y === end.y)) {
+                    // Draw a simple orange square as the "rat"
+                    ctx.fillStyle = "orange";
+                    ctx.fillRect(
+                        x * cellSize + cellSize/4, 
+                        y * cellSize + cellSize/4, 
+                        cellSize/2, 
+                        cellSize/2
+                    );
+                }
+                
+                setTimeout(() => {
+                    animatePath(path, index + 1);
+                }, 100);
+            }
+            
+            // A* algorithm
+            function findPath() {
+                while (openSet.length > 0) {
+                    // Sort by priority (f = g + h)
+                    openSet.sort((a, b) => a.priority - b.priority);
+                    let current = openSet.shift();
+                    
+                    // Check if we've reached the end
+                    if (current.x === end.x && current.y === end.y) {
+                        animatePath([...current.path], 0);
+                        return;
+                    }
+                    
+                    // Check neighbors
+                    const directions = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+                    for (let [dx, dy] of directions) {
+                        let nx = current.x + dx;
+                        let ny = current.y + dy;
+                        
+                        // Check if valid and not visited
+                        if (nx >= 0 && ny >= 0 && nx < size && ny < size && 
+                            maze[ny][nx] === 0 && !visited.has(`${nx},${ny}`)) {
+                            
+                            visited.add(`${nx},${ny}`);
+                            
+                            let newCost = current.cost + 1;
+                            let newPriority = newCost + heuristic({ x: nx, y: ny }, end);
+                            
+                            openSet.push({
+                                x: nx,
+                                y: ny,
+                                cost: newCost,
+                                priority: newPriority,
+                                path: [...current.path, { x: nx, y: ny }]
+                            });
+                            
+                            // Visualize exploration (light blue)
+                            if (!(nx === end.x && ny === end.y) && 
+                                !(nx === start.x && ny === start.y)) {
+                                ctx.fillStyle = "lightblue";
+                                ctx.fillRect(nx * cellSize, ny * cellSize, cellSize, cellSize);
+                            }
+                        }
+                    }
+                }
+                
+                // No path found
+                alert("No path found!");
+                clearInterval(timerInterval);
+                solving = false;
+            }
+            
+            // Start the pathfinding
+            requestAnimationFrame(findPath);
+        }
+        
+        // Initialize
+        generateMaze();
+    </script>
+</body>
+</html>
